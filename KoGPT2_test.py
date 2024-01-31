@@ -18,9 +18,9 @@ if torch.cuda.is_available():
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# 데이터셋 클래스 정의  / 질문, 답변, 라벨링이 탭으로 구분된 데이터에 대한 데이터셋 클래스
 from torch.utils.data import Dataset
 
+# 데이터셋 클래스 정의  / 질문, 답변, 라벨링이 탭으로 구분된 데이터에 대한 데이터셋 클래스
 class ChatDataset(Dataset):
     def __init__(self, filepath, tokenizer, max_len=512):
         self.tokenizer = tokenizer
@@ -39,7 +39,7 @@ class ChatDataset(Dataset):
     def __getitem__(self, idx):
         q, a, label = self.data[idx]
 
-        # 질문-답변쌍 토크나이
+        # 질문-답변쌍 토크나이징
         encoded_q = self.tokenizer.encode(self.tokenizer.bos_token + q + self.tokenizer.eos_token, 
                                           add_special_tokens=False)
         encoded_a = self.tokenizer.encode(a + self.tokenizer.eos_token, 
