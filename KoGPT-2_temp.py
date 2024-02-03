@@ -170,3 +170,21 @@ def generate_response(question, model, tokenizer, max_len=512):
 question = "기분이 안 좋아"
 response = generate_response(question, model, tokenizer)
 print(response)
+
+
+
+# pt 형태로 모델 저장
+def save_model(model, filepath):
+    torch.save(model.state_dict(), filepath)
+
+save_model(model, '/content/gdrive/My Drive/data/KoGPT2_001.pt')
+
+# pkl 형태로 모델 저장
+import torch
+import pickle
+
+def save_model_as_pkl(model, filepath):
+    with open(filepath, 'wb') as f:
+        pickle.dump(model, f)
+
+save_model_as_pkl(model, '/content/gdrive/My Drive/data/KoGPT2_001.pkl')
