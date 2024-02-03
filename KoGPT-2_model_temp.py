@@ -23,10 +23,10 @@ model = GPT2LMHeadModel.from_pretrained(model_name)
 
 # 특수 토큰 설정
 special_tokens = {
-    "bos_token": "</s>", 
-    "eos_token": "</s>", 
+    "bos_token": "</s>",
+    "eos_token": "</s>",
     "unk_token": "<unk>",
-    "pad_token": "<pad>", 
+    "pad_token": "<pad>",
     "mask_token": "<mask>"
 }
 tokenizer.add_special_tokens(special_tokens)
@@ -39,6 +39,7 @@ if torch.cuda.is_available():
 #데이터셋 클래스 정의
 from torch.utils.data import Dataset
 
+'''
 class ChatDataset(Dataset):
     def __init__(self, filepath, tokenizer, max_len=512):
         self.tokenizer = tokenizer
@@ -75,15 +76,37 @@ class ChatDataset(Dataset):
 
         # attention_mask 생성
         attention_mask = [1 if token_id != self.tokenizer.pad_token_id else 0 for token_id in encoded_pair]
-        
+
         # 리스트를 PyTorch 텐서로 변환
         attention_mask = torch.tensor(attention_mask, dtype=torch.long)
 
         return input_ids, attention_mask, torch.tensor(label, dtype=torch.long)
 
         #return input_ids, torch.tensor(label, dtype=torch.long)
+'''
+
+class QADataset(Dataset):
+    def __init__(self, filepath, tokenizer, max_len=128):
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+        self.data = []
+        with open(filepath, 'r', encoding='utf-8') as f:
+            for line in f:
+                q, a = line.strip().split('\t')  # 질문과 답변 쌍 읽기
+                self.data.append((q, a))
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        q, a = self.data[idx]
+        encoded_pair = self.tokenizer.encode_plus(q, a, max_length=self.max_len, padding='max_length', truncation=True, return_tensors="pt")
+        input_ids = encoded_pair['input_ids'].squeeze(0)
+        attention_mask = encoded_pair['attention_mask'].squeeze(0)
+        return input_ids, attention_mask
 
 
+# 모델 정의
 import torch
 from torch import nn
 
@@ -93,10 +116,11 @@ class KoGPT2ChatModel(nn.Module):
         self.kogpt2 = kogpt2_model
 
     def forward(self, input_ids, attention_mask=None):
+        # KoGPT2 모델의 출력을 가져옴
         outputs = self.kogpt2(input_ids=input_ids, attention_mask=attention_mask)
 
         logits = outputs.logits if isinstance(outputs, dict) else outputs[0]
-        
+
         return logits
 
     def generate(self, input_ids, **kwargs):
@@ -121,6 +145,7 @@ if torch.cuda.is_available():
     model = model.cuda()
     loss_fn = loss_fn.cuda()
 
+'''
 def train(epoch, model, dataloader, optimizer, loss_fn):
     model.train()
     for _ in range(epoch):
@@ -144,40 +169,65 @@ def train(epoch, model, dataloader, optimizer, loss_fn):
             optimizer.step()
 
             print(f"Loss: {loss.item()}")
+'''
+
+def train(epoch, model, dataloader, optimizer, loss_fn):
+    model.train()
+    for _ in range(epoch):
+        for input_ids, attention_mask in dataloader:  # labels 변수 제거
+            if torch.cuda.is_available():
+                input_ids, attention_mask = input_ids.cuda(), attention_mask.cuda()
+
+            optimizer.zero_grad()
+
+            # 모델의 출력 계산
+            outputs = model(input_ids, attention_mask=attention_mask)
+
+            # 손실 함수 계산을 위해 입력 시퀀스를 타겟으로 사용
+            # outputs 자체가 로짓이므로, 직접 사용합니다.
+            # 입력의 첫 번째 토큰을 제외한 나머지를 타겟으로 사용합니다.
+            # 여기서는 outputs[:, :-1]를 사용하여 모델이 출력한 로짓,
+            # input_ids[:, 1:]를 사용하여 실제 타겟 토큰입니다.
+            loss = loss_fn(outputs[:, :-1].reshape(-1, outputs.size(-1)), input_ids[:, 1:].reshape(-1))
+
+            loss.backward()
+            optimizer.step()
+
+            print(f"Loss: {loss.item()}")
+
 
 # 데이터셋 로드
-train_dataset = ChatDataset(filepath='/content/gdrive/My Drive/data/test_data.txt', tokenizer=tokenizer, max_len=512)
+train_dataset = QADataset(filepath='/content/gdrive/My Drive/data/test_data.txt', tokenizer=tokenizer, max_len=128)
 train_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True)
 
-# 모델 학습
-train(5, model, train_dataloader, optimizer, loss_fn)
+# 모델 학습 (첫번 째 파라미터 = 학습 횟수)
+train(40, model, train_dataloader, optimizer, loss_fn)
 
 
-def generate_response(question, model, tokenizer, max_len=512):
-    model.eval()  # 모델을 평가 모드로 설정
+# 문장 생성
+def generate_response(question, model, tokenizer, max_len=128):
+    model.eval()
     with torch.no_grad():
-        # 현재 모델이 사용하는 디바이스 확인
         device = next(model.parameters()).device
-        
-        # 입력 텐서를 모델과 동일한 디바이스로 이동
         input_ids = tokenizer.encode(tokenizer.bos_token + question + tokenizer.eos_token, return_tensors='pt').to(device)
-        
-        # 답변 생성
         output_ids = model.generate(input_ids, max_length=max_len, num_return_sequences=1)
         return tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
 # 테스트
-question = "기분이 안 좋아"
+question = "집중력이 흐려지는 것 같아."
 response = generate_response(question, model, tokenizer)
 print(response)
 
 
 
+
+'''
 # pt 형태로 모델 저장
 def save_model(model, filepath):
     torch.save(model.state_dict(), filepath)
 
 save_model(model, '/content/gdrive/My Drive/data/KoGPT2_001.pt')
+'''
 
 # pkl 형태로 모델 저장
 import torch
