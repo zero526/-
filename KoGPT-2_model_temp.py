@@ -218,7 +218,7 @@ question = "집중력이 흐려지는 것 같아."
 response = generate_response(question, model, tokenizer)
 print(response)
 
-
+# 테스트 결과 = 고민 있으신가요? 말씀해보세요. 말씀해보세요. 말씀해보세요. 말씀해보세요. 말씀해보세요. ~~~(반복)
 
 
 '''
