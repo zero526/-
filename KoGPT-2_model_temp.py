@@ -14,11 +14,11 @@ import numpy as np
 from google.colab import drive
 drive.mount('/content/gdrive')
 
-from transformers import GPT2LMHeadModel, PreTrainedTokenizerFast
+from transformers import GPT2LMHeadModel, GPT2TokenizerFast
 
 # KoGPT2 토크나이저 및 모델 로드
 model_name = "skt/kogpt2-base-v2"
-tokenizer = PreTrainedTokenizerFast.from_pretrained(model_name)
+tokenizer = GPT2TokenizerFast.from_pretrained(model_name)
 model = GPT2LMHeadModel.from_pretrained(model_name)
 
 # 특수 토큰 설정
@@ -38,53 +38,7 @@ if torch.cuda.is_available():
 
 #데이터셋 클래스 정의
 from torch.utils.data import Dataset
-
 '''
-class ChatDataset(Dataset):
-    def __init__(self, filepath, tokenizer, max_len=512):
-        self.tokenizer = tokenizer
-        self.max_len = max_len
-
-        # 데이터 로드
-        self.data = []
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for line in f:
-                q, a, label = line.strip().split('\t')
-                self.data.append((q, a, int(label)))
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        q, a, label = self.data[idx]
-
-        # 질문-답변쌍 토크나이징
-        encoded_q = self.tokenizer.encode(self.tokenizer.bos_token + q + self.tokenizer.eos_token,
-                                          add_special_tokens=False)
-        encoded_a = self.tokenizer.encode(a + self.tokenizer.eos_token,
-                                          add_special_tokens=False)
-
-        # 토큰 길이가 최대 길이를 초과하지 않도록 조정
-        encoded_pair = encoded_q + encoded_a[:max(self.max_len - len(encoded_q), 0)]
-
-        # 패딩 처리
-        padding_length = self.max_len - len(encoded_pair)
-        encoded_pair += [self.tokenizer.pad_token_id] * padding_length
-
-        # 주의: PyTorch 모델에 입력하기 위해선 tensor 형태로 변환해야 함
-        input_ids = torch.tensor(encoded_pair, dtype=torch.long)
-
-        # attention_mask 생성
-        attention_mask = [1 if token_id != self.tokenizer.pad_token_id else 0 for token_id in encoded_pair]
-
-        # 리스트를 PyTorch 텐서로 변환
-        attention_mask = torch.tensor(attention_mask, dtype=torch.long)
-
-        return input_ids, attention_mask, torch.tensor(label, dtype=torch.long)
-
-        #return input_ids, torch.tensor(label, dtype=torch.long)
-'''
-
 class QADataset(Dataset):
     def __init__(self, filepath, tokenizer, max_len=128):
         self.tokenizer = tokenizer
@@ -100,11 +54,54 @@ class QADataset(Dataset):
 
     def __getitem__(self, idx):
         q, a = self.data[idx]
-        encoded_pair = self.tokenizer.encode_plus(q, a, max_length=self.max_len, padding='max_length', truncation=True, return_tensors="pt")
+        encoded_pair = self.tokenizer.encode_plus(q, a, max_length=self.max_len, padding='max_length', truncation=True, add_special_tokens=True, return_tensors="pt")
         input_ids = encoded_pair['input_ids'].squeeze(0)
         attention_mask = encoded_pair['attention_mask'].squeeze(0)
         return input_ids, attention_mask
+'''
+class QADataset(Dataset):
+    def __init__(self, filepath, tokenizer, max_len=128):
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+        self.data = []
+        with open(filepath, 'r', encoding='utf-8') as f:
+            for line in f:
+                q, a = line.strip().split('\t')  # 질문과 답변 쌍 읽기
+                self.data.append((q, a))
 
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        q, a = self.data[idx]
+        # 질문과 답변에 BOS와 EOS 토큰 명시적 추가
+        q_encoded = tokenizer.encode(tokenizer.bos_token + q + tokenizer.eos_token, max_length=self.max_len//2, truncation=True, return_tensors="pt")
+        a_encoded = tokenizer.encode(tokenizer.bos_token + a + tokenizer.eos_token, max_length=self.max_len//2, truncation=True, return_tensors="pt")
+
+        # 질문과 답변 인코딩 결합
+        input_ids = torch.cat([q_encoded, a_encoded[:, 1:]], dim=1)  # <eos> 중복 제거
+        input_ids = input_ids.squeeze(0)
+
+        # attention_mask 생성
+        attention_mask = torch.ones(input_ids.shape, dtype=torch.long)  # 모든 토큰에 대해 attention 적용
+        attention_mask[input_ids == tokenizer.pad_token_id] = 0  # pad 토큰에 대해서는 attention 비적용
+
+        return input_ids, attention_mask
+
+
+
+''' 데이터셋 BOS와 EOS 토큰 ID 확인 테스트
+# 첫 번째 데이터 샘플을 가져와 인코딩된 input_ids 확인
+sample_input_ids, sample_attention_mask = QADataset(filepath='your_dataset_path.txt', tokenizer=tokenizer, max_len=128)[0]
+
+# BOS, EOS 토큰 ID 확인
+print("BOS Token ID:", tokenizer.bos_token_id, "EOS Token ID:", tokenizer.eos_token_id)
+print("Encoded Input IDs:", sample_input_ids)
+
+# 인코딩된 텍스트 확인
+decoded_text = tokenizer.decode(sample_input_ids)
+print("Decoded Text:", decoded_text)
+'''
 
 # 모델 정의
 import torch
@@ -145,31 +142,7 @@ if torch.cuda.is_available():
     model = model.cuda()
     loss_fn = loss_fn.cuda()
 
-'''
-def train(epoch, model, dataloader, optimizer, loss_fn):
-    model.train()
-    for _ in range(epoch):
-        for input_ids, attention_mask, labels in dataloader:
-            # GPU 설정
-            if torch.cuda.is_available():
-                input_ids, attention_mask, labels = input_ids.cuda(), attention_mask.cuda(), labels.cuda()
-
-            optimizer.zero_grad()
-
-            # 모델의 출력 계산
-            outputs = model(input_ids, attention_mask=attention_mask)
-
-            # 여기서 outputs는 [batch_size, sequence_length, num_classes] 형태를 가질 것으로 예상
-            # 첫 번째 토큰의 예측만 사용하여 손실을 계산하기 위해 조정
-            outputs = outputs[:, 0, :]
-
-            # 손실 계산 및 역전파
-            loss = loss_fn(outputs, labels)
-            loss.backward()
-            optimizer.step()
-
-            print(f"Loss: {loss.item()}")
-'''
+from torch.nn.utils.rnn import pad_sequence
 
 def train(epoch, model, dataloader, optimizer, loss_fn):
     model.train()
@@ -184,7 +157,6 @@ def train(epoch, model, dataloader, optimizer, loss_fn):
             outputs = model(input_ids, attention_mask=attention_mask)
 
             # 손실 함수 계산을 위해 입력 시퀀스를 타겟으로 사용
-            # outputs 자체가 로짓이므로, 직접 사용합니다.
             # 입력의 첫 번째 토큰을 제외한 나머지를 타겟으로 사용합니다.
             # 여기서는 outputs[:, :-1]를 사용하여 모델이 출력한 로짓,
             # input_ids[:, 1:]를 사용하여 실제 타겟 토큰입니다.
@@ -195,39 +167,48 @@ def train(epoch, model, dataloader, optimizer, loss_fn):
 
             print(f"Loss: {loss.item()}")
 
+# tensor 크기 맞춤
+def collate_fn(batch):
+    input_ids = [item[0] for item in batch]
+    attention_masks = [item[1] for item in batch]
 
-# 데이터셋 로드
-train_dataset = QADataset(filepath='/content/gdrive/My Drive/data/test_data.txt', tokenizer=tokenizer, max_len=128)
-train_dataloader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+    # 입력 ID와 어텐션 마스크를 패딩
+    input_ids_padded = pad_sequence(input_ids, batch_first=True, padding_value=tokenizer.pad_token_id)
+    attention_masks_padded = pad_sequence(attention_masks, batch_first=True, padding_value=0)
 
-# 모델 학습 (첫번 째 파라미터 = 학습 횟수)
-train(40, model, train_dataloader, optimizer, loss_fn)
+    return input_ids_padded, attention_masks_padded
 
+# 데이터셋 로드 batch_size = 너무크면 메모리 오버플로우, 작으면 학습시간 길어짐
+# DataLoader에 collate_fn 전달
+train_dataset = QADataset(filepath='/content/gdrive/My Drive/data/trans_csv.txt', tokenizer=tokenizer, max_len=128)
+train_dataloader = DataLoader(train_dataset, batch_size=64, shuffle=True, collate_fn=collate_fn)
+#train_dataloader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
-# 문장 생성
+# 모델 학습
+epoch = 10
+train(epoch, model, train_dataloader, optimizer, loss_fn)
+
 def generate_response(question, model, tokenizer, max_len=128):
     model.eval()
     with torch.no_grad():
         device = next(model.parameters()).device
         input_ids = tokenizer.encode(tokenizer.bos_token + question + tokenizer.eos_token, return_tensors='pt').to(device)
-        output_ids = model.generate(input_ids, max_length=max_len, num_return_sequences=1)
+        #output_ids = model.generate(input_ids, max_length=max_len, num_return_sequences=1)
+        output_ids = model.generate(input_ids, min_length=10, max_length=50, eos_token_id=tokenizer.eos_token_id, early_stopping=True, no_repeat_ngram_size=2, length_penalty=2.0, temperature=0.7, top_k=50, top_p=0.95)
+
         return tokenizer.decode(output_ids[0], skip_special_tokens=True)
 
-# 테스트
-question = "집중력이 흐려지는 것 같아."
+# 예시 사용
+question = "요즘 의욕이 없어."
 response = generate_response(question, model, tokenizer)
 print(response)
-
-# 테스트 결과 = 고민 있으신가요? 말씀해보세요. 말씀해보세요. 말씀해보세요. 말씀해보세요. 말씀해보세요. ~~~(반복)
-
 
 '''
 # pt 형태로 모델 저장
 def save_model(model, filepath):
     torch.save(model.state_dict(), filepath)
 
-save_model(model, '/content/gdrive/My Drive/data/KoGPT2_001.pt')
-'''
+save_model(model, '/content/gdrive/My Drive/data/KoGPT2_003.pt')
 
 # pkl 형태로 모델 저장
 import torch
@@ -237,4 +218,5 @@ def save_model_as_pkl(model, filepath):
     with open(filepath, 'wb') as f:
         pickle.dump(model, f)
 
-save_model_as_pkl(model, '/content/gdrive/My Drive/data/KoGPT2_001.pkl')
+save_model_as_pkl(model, '/content/gdrive/My Drive/data/KoGPT2_003.pkl')
+'''
