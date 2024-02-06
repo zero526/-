@@ -1,3 +1,8 @@
+'''
+학습을 위한 데이터 전처리 코드 中 1
+
+'''
+
 import csv
 import pandas as pd
 
