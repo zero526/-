@@ -1,3 +1,8 @@
+'''
+학습을 위한 데이터 전처리 코드 中 1
+
+'''
+
 from google.colab import drive
 drive.mount('/content/drive')
 
